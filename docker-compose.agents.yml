@@ -1,0 +1,191 @@
+version: '3.8'
+
+services:
+  # Core services from original system
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=docextract
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=docextract
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+
+  # AI Agent Coordinator
+  agent_coordinator:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.agents
+    command: python main.py
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://docextract:password@postgres:5432/docextract
+      - NUM_EXTRACTORS=5
+      - NUM_ANALYZERS=3
+      - NUM_AUDITORS=2
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./models:/app/models
+      - ./logs:/app/logs
+    ports:
+      - "8080:8080"  # Health check
+
+  # Conversational Interface API
+  conversational_api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.agents
+    command: python -m agents.api.conversational_api
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://docextract:password@postgres:5432/docextract
+    depends_on:
+      - redis
+      - agent_coordinator
+    ports:
+      - "8001:8001"
+
+  # Human Expert WebSocket Server
+  expert_interface:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.agents
+    command: python -m agents.interface.expert_server
+    environment:
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+      - agent_coordinator
+    ports:
+      - "8002:8002"  # WebSocket port
+
+  # Monitoring Dashboard
+  agent_monitor:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.monitor
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - GRAFANA_URL=http://grafana:3000
+    depends_on:
+      - redis
+      - grafana
+    ports:
+      - "8003:8003"
+
+  # Original API (enhanced with agent integration)
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    environment:
+      - DATABASE_URL=postgresql://docextract:password@postgres:5432/docextract
+      - REDIS_URL=redis://redis:6379
+      - AGENT_SYSTEM_ENABLED=true
+      - AGENT_COORDINATOR_URL=http://agent_coordinator:8080
+    depends_on:
+      - postgres
+      - redis
+      - agent_coordinator
+    ports:
+      - "8000:8000"
+
+volumes:
+  postgres_data:
+  redis_data:
+
+
+# k8s/agent-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-agent-coordinator
+  namespace: doc-extraction
+spec:
+  replicas: 1  # Single coordinator instance
+  selector:
+    matchLabels:
+      app: ai-agent
+      component: coordinator
+  template:
+    metadata:
+      labels:
+        app: ai-agent
+        component: coordinator
+    spec:
+      containers:
+      - name: coordinator
+        image: registry.company.com/ai-agent-system:v1.0.0
+        command: ["python", "main.py"]
+        env:
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: agent-secrets
+              key: redis-url
+        - name: NUM_EXTRACTORS
+          value: "10"
+        - name: NUM_ANALYZERS
+          value: "5"
+        resources:
+          requests:
+            memory: "4Gi"
+            cpu: "2000m"
+          limits:
+            memory: "8Gi"
+            cpu: "4000m"
+            nvidia.com/gpu: "1"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ai-agent-extractors
+  namespace: doc-extraction
+spec:
+  serviceName: extractor-agents
+  replicas: 5
+  selector:
+    matchLabels:
+      app: ai-agent
+      component: extractor
+  template:
+    metadata:
+      labels:
+        app: ai-agent
+        component: extractor
+    spec:
+      containers:
+      - name: extractor
+        image: registry.company.com/ai-agent-system:v1.0.0
+        command: ["python", "-m", "agents.workers.extractor_worker"]
+        env:
+        - name: AGENT_ROLE
+          value: "extractor"
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: agent-secrets
+              key: redis-url
+        resources:
+          requests:
+            memory: "8Gi"
+            cpu: "4000m"
+            nvidia.com/gpu: "1"
+          limits:
+            memory: "16Gi"
+            cpu: "8000m"
+            nvidia.com/gpu: "1"
