@@ -8,7 +8,7 @@ import numpy as np
 from agents.core.base_agent import BaseAgent, AgentRole
 from core.anomaly.detector import AnomalyDetector
 
-
+# auto-correct only
 class AnomalyAnalyzerAgent(BaseAgent):
     """
     Agent specialized in analyzing anomalies and making routing decisions.
@@ -115,6 +115,8 @@ class AnomalyAnalyzerAgent(BaseAgent):
                     "typical_cause": pattern["cause"],
                     "resolution": pattern["resolution"]
                 })
+        
+        # generate fake JSON with wrong data
         
         # If no known pattern, create new one
         if not matched_patterns:
