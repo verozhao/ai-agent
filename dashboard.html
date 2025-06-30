@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Agent System - Real-time Analytics Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0a0a;
+            color: #e0e0e0;
+            overflow-x: hidden;
+        }
+        
+        .dashboard {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 1fr;
+            grid-template-rows: auto repeat(3, 1fr);
+            gap: 20px;
+            padding: 20px;
+            height: 100vh;
+            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2a 100%);
+        }
+        
+        .header {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 20px;
+            background: linear-gradient(90deg, #2a2a3a 0%, #3a3a4a 50%, #2a2a3a 100%);
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,255,255,0.1);
+        }
+        
+        h1 {
+            font-size: 2.5em;
+            background: linear-gradient(45deg, #00ffff, #ff00ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+        
+        .metric-card {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 15px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .metric-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 40px rgba(0,255,255,0.2);
+            border-color: rgba(0,255,255,0.3);
+        }
+        
+        .metric-card::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(0,255,255,0.1) 0%, transparent 70%);
+            animation: pulse 4s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(0.8); opacity: 0; }
+            50% { transform: scale(1.2); opacity: 1; }
+        }
+        
+        .metric-value {
+            font-size: 3em;
+            font-weight: bold;
+            margin: 20px 0;
+            text-shadow: 0 0 20px currentColor;
+        }
+        
+        .metric-label {
+            font-size: 0.9em;
+            opacity: 0.8;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .chart-container {
+            grid-column: span 2;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 15px;
+            padding: 20px;
+            position: relative;
+        }
+        
+        .agent-network {
+            grid-column: span 2;
+            grid-row: span 2;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 15px;
+            padding: 20px;
+            position: relative;
+        }
+        
+        #agentNetwork {
+            width: 100%;
+            height: 100%;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 10px;
+            animation: statusPulse 2s ease-in-out infinite;
+        }
+        
+        @keyframes statusPulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.2); opacity: 0.8; }
+        }
+        
+        .status-healthy { background: #00ff00; box-shadow: 0 0 20px #00ff00; }
+        .status-warning { background: #ffff00; box-shadow: 0 0 20px #ffff00; }
+        .status-critical { background: #ff0000; box-shadow: 0 0 20px #ff0000; }
+        
+        .success-rate { color: #00ff88; }
+        .processing-time { color: #00bbff; }
+        .anomaly-score { color: #ff00ff; }
+        .collaboration-rate { color: #ffaa00; }
+        
+        .live-feed {
+            grid-column: span 2;
+            background: rgba(0,0,0,0.5);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 15px;
+            padding: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .feed-item {
+            padding: 10px;
+            margin: 5px 0;
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+            border-left: 3px solid #00ffff;
+            animation: slideIn 0.3s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from { transform: translateX(-20px); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        
+        .agent-bubble {
+            fill: rgba(0,255,255,0.8);
+            stroke: #00ffff;
+            stroke-width: 2;
+            filter: drop-shadow(0 0 10px rgba(0,255,255,0.5));
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .agent-bubble:hover {
+            fill: rgba(0,255,255,1);
+            filter: drop-shadow(0 0 20px rgba(0,255,255,0.8));
+            transform: scale(1.1);
+        }
+        
+        .agent-link {
+            stroke: rgba(255,255,255,0.2);
+            stroke-width: 2;
+            stroke-dasharray: 5,5;
+            animation: dash 20s linear infinite;
+        }
+        
+        @keyframes dash {
+            to { stroke-dashoffset: -100; }
+        }
+        
+        .tooltip {
+            position: absolute;
+            padding: 10px;
+            background: rgba(0,0,0,0.9);
+            border: 1px solid #00ffff;
+            border-radius: 8px;
+            font-size: 0.9em;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+            z-index: 1000;
+        }
+        
+        canvas {
+            max-width: 100%;
+            height: auto !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <div class="header">
+            <h1>AI Agent System Analytics</h1>
+            <p>Real-time monitoring and performance metrics</p>
+            <span class="status-indicator status-healthy"></span>
+            <span id="systemStatus">System Operational</span>
+        </div>
+        
+        <div class="metric-card">
+            <div class="metric-label">Success Rate</div>
+            <div class="metric-value success-rate" id="successRate">96.5%</div>
+            <div class="metric-trend" id="successTrend">↑ 2.3%</div>
+        </div>
+        
+        <div class="metric-card">
+            <div class="metric-label">Avg Processing Time</div>
+            <div class="metric-value processing-time" id="processingTime">0.8s</div>
+            <div class="metric-trend" id="timeTrend">↓ 150ms</div>
+        </div>
+        
+        <div class="metric-card">
+            <div class="metric-label">Anomaly Detection</div>
+            <div class="metric-value anomaly-score" id="anomalyRate">94%</div>
+            <div class="metric-trend" id="anomalyTrend">↑ 5.2%</div>
+        </div>
+        
+        <div class="metric-card">
+            <div class="metric-label">Agent Collaboration</div>
+            <div class="metric-value collaboration-rate" id="collaborationRate">87%</div>
+            <div class="metric-trend" id="collaborationTrend">↑ 3.1%</div>
+        </div>
+        
+        <div class="chart-container">
+            <h3>Document Processing Timeline</h3>
+            <canvas id="timelineChart"></canvas>
+        </div>
+        
+        <div class="chart-container">
+            <h3>Agent Performance Distribution</h3>
+            <canvas id="performanceChart"></canvas>
+        </div>
+        
+        <div class="agent-network">
+            <h3>Agent Network Visualization</h3>
+            <svg id="agentNetwork"></svg>
+        </div>
+        
+        <div class="live-feed">
+            <h3>Live Activity Feed</h3>
+            <div id="activityFeed"></div>
+        </div>
+    </div>
+    
+    <div class="tooltip" id="tooltip"></div>
+
+    <script>
+        // Initialize Socket.IO connection
+        const socket = io('http://localhost:8003');
+        
+        // Chart configurations
+        const chartColors = {
+            primary: 'rgba(0, 255, 255, 0.8)',
+            secondary: 'rgba(255, 0, 255, 0.8)',
+            success: 'rgba(0, 255, 136, 0.8)',
+            warning: 'rgba(255, 170, 0, 0.8)',
+            danger: 'rgba(255, 0, 0, 0.8)'
+        };
+        
+        // Timeline Chart
+        const timelineCtx = document.getElementById('timelineChart').getContext('2d');
+        const timelineChart = new Chart(timelineCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Documents Processed',
+                    data: [],
+                    borderColor: chartColors.primary,
+                    backgroundColor: 'rgba(0, 255, 255, 0.1)',
+                    borderWidth: 2,
+                    tension: 0.4,
+                    fill: true
+                }, {
+                    label: 'Anomalies Detected',
+                    data: [],
+                    borderColor: chartColors.secondary,
+                    backgroundColor: 'rgba(255, 0, 255, 0.1)',
+                    borderWidth: 2,
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        labels: { color: '#e0e0e0' }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { color: 'rgba(255,255,255,0.1)' },
+                        ticks: { color: '#e0e0e0' }
+                    },
+                    y: {
+                        grid: { color: 'rgba(255,255,255,0.1)' },
+                        ticks: { color: '#e0e0e0' }
+                    }
+                }
+            }
+        });
+        
+        // Performance Chart
+        const performanceCtx = document.getElementById('performanceChart').getContext('2d');
+        const performanceChart = new Chart(performanceCtx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Extractor Agents', 'Analyzer Agents', 'Coordinator', 'Conversational'],
+                datasets: [{
+                    data: [35, 25, 20, 20],
+                    backgroundColor: [
+                        chartColors.primary,
+                        chartColors.secondary,
+                        chartColors.success,
+                        chartColors.warning
+                    ],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { color: '#e0e0e0' }
+                    }
+                }
+            }
+        });
+        
+        // Agent Network Visualization
+        function createAgentNetwork() {
+            const width = document.getElementById('agentNetwork').clientWidth;
+            const height = document.getElementById('agentNetwork').clientHeight;
+            
+            const svg = d3.select('#agentNetwork')
+                .attr('width', width)
+                .attr('height', height);
+            
+            // Sample agent network data
+            const nodes = [
+                { id: 'coordinator', type: 'coordinator', x: width/2, y: height/2 },
+                { id: 'extractor1', type: 'extractor', x: width/4, y: height/3 },
+                { id: 'extractor2', type: 'extractor', x: width/4, y: 2*height/3 },
+                { id: 'analyzer1', type: 'analyzer', x: 3*width/4, y: height/3 },
+                { id: 'analyzer2', type: 'analyzer', x: 3*width/4, y: 2*height/3 }
+            ];
+            
+            const links = [
+                { source: 'coordinator', target: 'extractor1' },
+                { source: 'coordinator', target: 'extractor2' },
+                { source: 'coordinator', target: 'analyzer1' },
+                { source: 'coordinator', target: 'analyzer2' },
+                { source: 'extractor1', target: 'analyzer1' },
+                { source: 'extractor2', target: 'analyzer2' }
+            ];
+            
+            // Create links
+            svg.selectAll('.agent-link')
+                .data(links)
+                .enter()
+                .append('line')
+                .attr('class', 'agent-link')
+                .attr('x1', d => nodes.find(n => n.id === d.source).x)
+                .attr('y1', d => nodes.find(n => n.id === d.source).y)
+                .attr('x2', d => nodes.find(n => n.id === d.target).x)
+                .attr('y2', d => nodes.find(n => n.id === d.target).y);
+            
+            // Create nodes
+            const nodeGroups = svg.selectAll('.agent-node')
+                .data(nodes)
+                .enter()
+                .append('g')
+                .attr('class', 'agent-node')
+                .attr('transform', d => `translate(${d.x}, ${d.y})`);
+            
+            nodeGroups.append('circle')
+                .attr('class', 'agent-bubble')
+                .attr('r', d => d.type === 'coordinator' ? 30 : 20)
+                .on('mouseover', showTooltip)
+                .on('mouseout', hideTooltip);
+            
+            nodeGroups.append('text')
+                .attr('text-anchor', 'middle')
+                .attr('dy', '0.3em')
+                .attr('fill', '#000')
+                .attr('font-weight', 'bold')
+                .text(d => d.id.substring(0, 3).toUpperCase());
+        }
+        
+        // Tooltip functions
+        function showTooltip(event, d) {
+            const tooltip = document.getElementById('tooltip');
+            tooltip.innerHTML = `
+                <strong>${d.id}</strong><br>
+                Type: ${d.type}<br>
+                Status: Active<br>
+                Tasks: ${Math.floor(Math.random() * 50)}
+            `;
+            tooltip.style.left = event.pageX + 10 + 'px';
+            tooltip.style.top = event.pageY - 10 + 'px';
+            tooltip.style.opacity = 1;
+        }
+        
+        function hideTooltip() {
+            document.getElementById('tooltip').style.opacity = 0;
+        }
+        
+        // Update metrics
+        function updateMetrics(data) {
+            document.getElementById('successRate').textContent = data.successRate + '%';
+            document.getElementById('processingTime').textContent = data.processingTime + 's';
+            document.getElementById('anomalyRate').textContent = data.anomalyRate + '%';
+            document.getElementById('collaborationRate').textContent = data.collaborationRate + '%';
+            
+            // Update trends
+            updateTrend('successTrend', data.successTrend);
+            updateTrend('timeTrend', data.timeTrend, true);
+            updateTrend('anomalyTrend', data.anomalyTrend);
+            updateTrend('collaborationTrend', data.collaborationTrend);
+        }
+        
+        function updateTrend(elementId, value, inverse = false) {
+            const element = document.getElementById(elementId);
+            const arrow = value > 0 ? '↑' : '↓';
+            const color = (value > 0 && !inverse) || (value < 0 && inverse) ? '#00ff88' : '#ff4444';
+            element.textContent = `${arrow} ${Math.abs(value)}%`;
+            element.style.color = color;
+        }
+        
+        // Add activity to feed
+        function addActivity(activity) {
+            const feed = document.getElementById('activityFeed');
+            const item = document.createElement('div');
+            item.className = 'feed-item';
+            item.innerHTML = `
+                <strong>${activity.agent}</strong> - ${activity.action}<br>
+                <small>${new Date(activity.timestamp).toLocaleTimeString()}</small>
+            `;
+            feed.insertBefore(item, feed.firstChild);
+            
+            // Keep only last 10 items
+            while (feed.children.length > 10) {
+                feed.removeChild(feed.lastChild);
+            }
+        }
+        
+        // Socket event handlers
+        socket.on('metrics', updateMetrics);
+        socket.on('activity', addActivity);
+        socket.on('chartData', (data) => {
+            // Update timeline chart
+            timelineChart.data.labels = data.labels;
+            timelineChart.data.datasets[0].data = data.processed;
+            timelineChart.data.datasets[1].data = data.anomalies;
+            timelineChart.update();
+        });
+        
+        // Initialize
+        createAgentNetwork();
+        
+        // Simulate real-time updates
+        setInterval(() => {
+            // Simulate metric updates
+            const mockData = {
+                successRate: (95 + Math.random() * 3).toFixed(1),
+                processingTime: (0.7 + Math.random() * 0.3).toFixed(1),
+                anomalyRate: (92 + Math.random() * 5).toFixed(1),
+                collaborationRate: (85 + Math.random() * 5).toFixed(1),
+                successTrend: (Math.random() * 4 - 2).toFixed(1),
+                timeTrend: (Math.random() * 200 - 100).toFixed(0),
+                anomalyTrend: (Math.random() * 6 - 3).toFixed(1),
+                collaborationTrend: (Math.random() * 4 - 2).toFixed(1)
+            };
+            updateMetrics(mockData);
+            
+            // Simulate activity
+            const activities = [
+                { agent: 'Extractor-001', action: 'Successfully extracted invoice data' },
+                { agent: 'Analyzer-002', action: 'Detected anomaly in document pattern' },
+                { agent: 'Coordinator', action: 'Routed document to eval set 2' },
+                { agent: 'Conversational', action: 'Answered user query about processing status' }
+            ];
+            
+            if (Math.random() > 0.7) {
+                addActivity({
+                    ...activities[Math.floor(Math.random() * activities.length)],
+                    timestamp: new Date()
+                });
+            }
+        }, 2000);
+    </script>
+</body>
+</html>
