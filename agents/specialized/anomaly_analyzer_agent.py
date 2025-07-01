@@ -8,7 +8,6 @@ import numpy as np
 from agents.core.base_agent import BaseAgent, AgentRole
 from core.anomaly.detector import AnomalyDetector
 
-# auto-correct only
 class AnomalyAnalyzerAgent(BaseAgent):
     """
     Agent specialized in analyzing anomalies and making routing decisions.
@@ -70,6 +69,10 @@ class AnomalyAnalyzerAgent(BaseAgent):
             analysis = await self._compare_historical_anomalies(extraction_result)
         elif decision.action == "request_expert_review":
             analysis = await self._request_expert_review(extraction_result)
+        elif decision.action == "auto_correct":
+            analysis = await self._auto_correct(extraction_result)
+        elif decision.action == "learn_from_audit":
+            analysis = await self._learn_from_audit(extraction_result)
         else:
             analysis = await self._standard_anomaly_analysis(extraction_result)
         
@@ -115,8 +118,6 @@ class AnomalyAnalyzerAgent(BaseAgent):
                     "typical_cause": pattern["cause"],
                     "resolution": pattern["resolution"]
                 })
-        
-        # generate fake JSON with wrong data
         
         # If no known pattern, create new one
         if not matched_patterns:
